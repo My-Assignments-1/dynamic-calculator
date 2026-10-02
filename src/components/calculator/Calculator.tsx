@@ -31,6 +31,7 @@ const SCI_KEYS = [
 export function Calculator() {
   const [expr, setExpr] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [angleMode, setAngleMode] = useState<AngleMode>("deg");
   const [theme, setTheme] = useState<CalcTheme>(THEMES[0]!);
@@ -61,10 +62,22 @@ export function Calculator() {
     }
   }, []);
 
+  const OPERATORS = ["+", "−", "×", "÷", "%", "^"];
+
   const push = (s: string) => {
+    setError(null);
     setExpr((prev) => {
       const base = justEvaluated ? (/[0-9.πe!]$/.test(s) ? "" : prev) : prev;
-      const nextExpr = base + s;
+      let nextExpr: string;
+      // Fix 1: ignore a second decimal point within the same number
+      if (s === "." && /\d*\.\d*$/.test(base) && /\.\d*$/.test(base)) {
+        nextExpr = base;
+      // Fix 2: replace a trailing operator instead of stacking operators
+      } else if (OPERATORS.includes(s) && base.length > 0 && OPERATORS.includes(base.slice(-1))) {
+        nextExpr = base.slice(0, -1) + s;
+      } else {
+        nextExpr = base + s;
+      }
       livePreview(nextExpr, angleMode);
       return nextExpr;
     });
@@ -72,6 +85,7 @@ export function Calculator() {
   };
 
   const backspace = () => {
+    setError(null);
     setExpr((prev) => {
       const nextExpr = prev.slice(0, -1);
       livePreview(nextExpr, angleMode);
@@ -80,7 +94,7 @@ export function Calculator() {
     setJustEvaluated(false);
   };
 
-  const clear = () => { setExpr(""); setPreview(null); setJustEvaluated(false); };
+  const clear = () => { setExpr(""); setPreview(null); setError(null); setJustEvaluated(false); };
 
   const equals = () => {
     if (!expr) return;
@@ -90,9 +104,16 @@ export function Calculator() {
       setHistory((h) => [{ id: ++idRef.current, expr, result }, ...h].slice(0, 50));
       setExpr(result);
       setPreview(null);
+      setError(null);
       setJustEvaluated(true);
-    } catch {
-      toast.error("Invalid expression");
+    } catch (err) {
+      // Fix 3: show a clear message for division by zero
+      if (err instanceof Error && err.message === "÷ by 0") {
+        setPreview(null);
+        setError("Cannot divide by zero");
+      } else {
+        toast.error("Invalid expression");
+      }
     }
   };
 
@@ -297,7 +318,9 @@ export function Calculator() {
           </div>
         </div>
         <div className="flex h-8 w-full items-center justify-end gap-3">
-          {preview && preview !== expr && (
+          {error ? (
+            <span role="alert" className="text-xl text-destructive">{error}</span>
+          ) : preview && preview !== expr && (
             <span className="text-xl text-muted-foreground">= {preview}</span>
           )}
           {expr && (
